@@ -27,6 +27,10 @@ create index if not exists ledger_entries_period_idx
 create index if not exists ledger_entries_category_idx
   on public.ledger_entries (category_id);
 
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.ledger_categories to anon, authenticated;
+grant select, insert, update, delete on public.ledger_entries to anon, authenticated;
+
 alter table public.ledger_categories enable row level security;
 alter table public.ledger_entries enable row level security;
 
