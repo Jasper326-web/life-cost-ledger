@@ -62,17 +62,23 @@ export function fallbackAnalysis(input: AnalysisInput) {
 }
 
 export async function runModelAnalysis(input: AnalysisInput) {
-  if (!process.env.OPENAI_API_KEY) return fallbackAnalysis(input);
+  const apiKey = process.env.DASHSCOPE_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) return fallbackAnalysis(input);
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const baseUrl = stripTrailingSlash(
+    process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  );
+  const model = process.env.AI_MODEL || process.env.OPENAI_MODEL || "qwen-plus";
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+      Authorization: `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || "gpt-5-mini",
-      input: [
+      model,
+      messages: [
         {
           role: "system",
           content: "你是务实的中文财务分析助手。只基于给定 JSON 分析，不编造数据。输出概览、风险、建议。"
@@ -87,7 +93,7 @@ export async function runModelAnalysis(input: AnalysisInput) {
 
   if (!response.ok) return fallbackAnalysis(input);
   const data = await response.json();
-  return data.output_text || fallbackAnalysis(input);
+  return data.choices?.[0]?.message?.content || fallbackAnalysis(input);
 }
 
 export function formatMoney(value: number) {
@@ -96,4 +102,8 @@ export function formatMoney(value: number) {
     currency: "CNY",
     maximumFractionDigits: 0
   }).format(value);
+}
+
+function stripTrailingSlash(value: string) {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
 }
