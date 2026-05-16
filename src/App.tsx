@@ -127,7 +127,8 @@ export function App() {
 
   const activeCategory = categories.find((category) => category.id === activeCategoryId) || categories[0];
   const activeEntries = visibleEntries.filter((entry) => entry.category_id === activeCategory?.id);
-  const visibleSavings = savings.filter((saving) => saving.period_type === periodType && saving.period_start === periodStart);
+  const visibleSavings =
+    scope === "family" ? savings.filter((saving) => saving.period_type === periodType && saving.period_start === periodStart) : [];
   const summary = summarize(categories, visibleEntries, visibleSavings);
   const chartRows = summary.byCategory.filter((row) => row.amount > 0);
 
@@ -462,7 +463,7 @@ export function App() {
         <Kpi tone="yellow" label="收入" value={formatMoney(summary.income)} mark="¥" />
         <Kpi tone="coral" label="成本" value={formatMoney(summary.expense)} mark="□" />
         <Kpi tone="green" label="结余" value={formatMoney(summary.savings)} mark="+" />
-        <Kpi tone="purple" label="家庭储蓄金" value={formatMoney(summary.saved)} mark="储" />
+        {scope === "family" && <Kpi tone="purple" label="家庭储蓄金" value={formatMoney(summary.saved)} mark="储" />}
       </section>
 
       <section className="workspace">
@@ -550,50 +551,52 @@ export function App() {
         </aside>
       </section>
 
-      <section className="savingsPanel">
-        <div className="panelHeader">
-          <div>
-            <p>家庭储蓄金</p>
-            <h2>{formatMoney(summary.saved)}</h2>
+      {scope === "family" && (
+        <section className="savingsPanel">
+          <div className="panelHeader">
+            <div>
+              <p>家庭储蓄金</p>
+              <h2>{formatMoney(summary.saved)}</h2>
+            </div>
+            <span>储蓄来源</span>
           </div>
-          <span>储蓄来源</span>
-        </div>
-        <div className="entryTable savingsTable">
-          <div className="entryHead">
-            <span>来源</span>
-            <span>已储蓄金额</span>
-            <span>归属</span>
-            <span>备注</span>
-            <span />
-          </div>
-          {visibleSavings.map((saving) => (
-            <form className="entryRow savingRow" key={saving.id} onSubmit={(event) => void updateSaving(event, saving.id)}>
-              <input name="source_name" defaultValue={saving.source_name} />
-              <input name="amount" type="number" min="0" defaultValue={saving.amount} />
-              <select name="person" defaultValue={saving.person}>
+          <div className="entryTable savingsTable">
+            <div className="entryHead">
+              <span>来源</span>
+              <span>已储蓄金额</span>
+              <span>归属</span>
+              <span>备注</span>
+              <span />
+            </div>
+            {visibleSavings.map((saving) => (
+              <form className="entryRow savingRow" key={saving.id} onSubmit={(event) => void updateSaving(event, saving.id)}>
+                <input name="source_name" defaultValue={saving.source_name} />
+                <input name="amount" type="number" min="0" defaultValue={saving.amount} />
+                <select name="person" defaultValue={saving.person}>
+                  <option value="yangbao">阳宝</option>
+                  <option value="yubao">雨宝</option>
+                </select>
+                <input name="note" defaultValue={saving.note || ""} />
+                <button type="submit">保存</button>
+                <button type="button" onClick={() => void deleteSaving(saving.id)} aria-label="删除储蓄来源">
+                  ×
+                </button>
+              </form>
+            ))}
+            <form className="entryRow savingRow newRow" onSubmit={addSaving}>
+              <input name="source_name" placeholder="例如：定投 / 年终奖结余" />
+              <input name="amount" type="number" min="0" placeholder="0" />
+              <select name="person" defaultValue="yangbao">
                 <option value="yangbao">阳宝</option>
                 <option value="yubao">雨宝</option>
               </select>
-              <input name="note" defaultValue={saving.note || ""} />
+              <input name="note" placeholder="可选" />
               <button type="submit">保存</button>
-              <button type="button" onClick={() => void deleteSaving(saving.id)} aria-label="删除储蓄来源">
-                ×
-              </button>
+              <span />
             </form>
-          ))}
-          <form className="entryRow savingRow newRow" onSubmit={addSaving}>
-            <input name="source_name" placeholder="例如：定投 / 年终奖结余" />
-            <input name="amount" type="number" min="0" placeholder="0" />
-            <select name="person" defaultValue="yangbao">
-              <option value="yangbao">阳宝</option>
-              <option value="yubao">雨宝</option>
-            </select>
-            <input name="note" placeholder="可选" />
-            <button type="submit">保存</button>
-            <span />
-          </form>
-        </div>
-      </section>
+          </div>
+        </section>
+      )}
 
       <section className="charts">
         <article className="chartPanel">
@@ -615,7 +618,7 @@ export function App() {
             <span>⌁</span>
             <h3>图表说明</h3>
           </div>
-          <p className="chartCopy">{describeCharts(summary)}</p>
+          <p className="chartCopy">{describeCharts(summary, scope === "family")}</p>
         </article>
       </section>
     </main>
@@ -737,12 +740,13 @@ function summarize(categories: Category[], entries: Entry[], savings: FamilySavi
   };
 }
 
-function describeCharts(summary: ReturnType<typeof summarize>) {
+function describeCharts(summary: ReturnType<typeof summarize>, includeSavings = false) {
   const top = summary.byCategory.find((row) => row.flowType === "expense");
-  if (!top) return `当前周期还没有成本记录。家庭储蓄金为 ${formatMoney(summary.saved)}，新增储蓄来源后会进入图表。`;
+  const savingText = includeSavings ? `，家庭储蓄金为 ${formatMoney(summary.saved)}` : "";
+  if (!top) return `当前周期还没有成本记录${savingText}。`;
   return `当前最大成本项是 ${top.name}，金额 ${formatMoney(top.amount)}。总成本率为 ${Math.round(
     summary.expenseRatio * 100
-  )}%，结余为 ${formatMoney(summary.savings)}，家庭储蓄金为 ${formatMoney(summary.saved)}。`;
+  )}%，结余为 ${formatMoney(summary.savings)}${savingText}。`;
 }
 
 function makeLocalAnalysis(question: string, summary: ReturnType<typeof summarize>) {
