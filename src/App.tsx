@@ -397,8 +397,8 @@ export function App() {
       } else {
         const label =
           data.analysis.source === "model"
-            ? `大模型分析 · ${data.analysis.model || "model"}`
-            : `本地规则兜底${data.analysis.error ? `\n原因：${data.analysis.error}` : ""}`;
+            ? `钱多多 · ${data.analysis.model || "model"}`
+            : `钱多多的本地小算盘${data.analysis.error ? `\n原因：${data.analysis.error}` : ""}`;
         setAnalysis(`${label}\n\n${data.analysis.text}`);
         setAnalysisSource(data.analysis.source);
       }
@@ -561,13 +561,14 @@ export function App() {
             <span>储蓄来源</span>
           </div>
           <div className="entryTable savingsTable">
-            <div className="entryHead">
-              <span>来源</span>
-              <span>已储蓄金额</span>
-              <span>归属</span>
-              <span>备注</span>
-              <span />
-            </div>
+          <div className="entryHead">
+            <span>来源</span>
+            <span>已储蓄金额</span>
+            <span>归属</span>
+            <span>备注</span>
+            <span />
+            <span />
+          </div>
             {visibleSavings.map((saving) => (
               <form className="entryRow savingRow" key={saving.id} onSubmit={(event) => void updateSaving(event, saving.id)}>
                 <input name="source_name" defaultValue={saving.source_name} />

@@ -72,7 +72,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const [categories, entries, savings] = await Promise.all([
       supabaseRest<Category[]>("ledger_categories?select=*&order=sort_order.asc"),
       supabaseRest<Entry[]>(`ledger_entries?${entryQuery.toString()}`),
-      supabaseRest<FamilySaving[]>(`family_savings?${savingQuery.toString()}`)
+      scope === "family" ? supabaseRest<FamilySaving[]>(`family_savings?${savingQuery.toString()}`) : Promise.resolve([])
     ]);
 
     const analysis = await runModelAnalysis({
@@ -114,11 +114,12 @@ async function runModelAnalysis(input: AnalysisInput) {
         messages: [
           {
             role: "system",
-            content: "你是务实的中文财务分析助手。只基于给定 JSON 分析，不编造数据。输出概览、风险、建议。"
+            content:
+              "你是我们家的财务管家“钱多多”。请用乖巧可爱、心细、缜密、细腻的中文语气称呼用户为“我们家”。只基于提供的数据做判断，不编造。不要输出 JSON、代码块、Markdown 表格或大段数据罗列。输出 2 到 4 段结论文字，先说结论，再说最值得注意的一两点，最后给温柔但明确的行动建议。整体保持简短。"
           },
           {
             role: "user",
-            content: JSON.stringify({ ...input, summary: summarizeLedger(input) })
+            content: buildAnalysisPrompt(input)
           }
         ]
       })
@@ -146,6 +147,38 @@ async function runModelAnalysis(input: AnalysisInput) {
       error: error instanceof Error ? error.message : "模型请求失败。"
     };
   }
+}
+
+function buildAnalysisPrompt(input: AnalysisInput) {
+  const summary = summarizeLedger(input);
+  const scopeLabel = input.scope === "family" ? "家庭" : "个人";
+  const periodLabel = input.periodType === "year" ? "年度" : "月度";
+  const categoryLines = summary.categories
+    .slice(0, 6)
+    .map((category) => `${category.name}：${formatMoney(category.amount)}（${category.flowType === "income" ? "收入" : "支出"}）`)
+    .join("\n");
+  const savingLines =
+    input.scope === "family"
+      ? input.savings
+          .slice(0, 6)
+          .map((saving) => `${saving.source_name}：${formatMoney(Number(saving.amount) || 0)}`)
+          .join("\n")
+      : "";
+
+  return [
+    `我们家的问题：${input.question || "本期表现如何？"}`,
+    `范围：${scopeLabel}${periodLabel}，周期开始：${input.periodStart}`,
+    `收入：${formatMoney(summary.income)}`,
+    `支出：${formatMoney(summary.expense)}`,
+    `结余：${formatMoney(summary.savings)}`,
+    `成本率：${Math.round(summary.expenseRatio * 100)}%`,
+    input.scope === "family" ? `家庭储蓄金：${formatMoney(summary.saved)}` : "",
+    categoryLines ? `主要分类：\n${categoryLines}` : "主要分类：暂无",
+    savingLines ? `储蓄来源：\n${savingLines}` : "",
+    "请直接输出给用户看的自然语言结论，不要列原始表格。"
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function summarizeLedger(input: Omit<AnalysisInput, "question">) {
@@ -188,13 +221,17 @@ function fallbackAnalysis(input: AnalysisInput) {
     ? `${summary.largestExpense.name} 是最大的成本桶，金额为 ${formatMoney(summary.largestExpense.amount)}。`
     : "当前没有成本类记录。";
 
+  const savedText = input.scope === "family" ? `，家庭储蓄金已经有 ${formatMoney(summary.saved)}` : "";
   return [
-    `${scopeLabel}${periodLabel}概览：收入 ${formatMoney(summary.income)}，成本 ${formatMoney(
+    `钱多多看完啦，我们家这个${scopeLabel}${periodLabel}整体是：收入 ${formatMoney(summary.income)}，支出 ${formatMoney(
       summary.expense
-    )}，结余 ${formatMoney(summary.savings)}，家庭储蓄金 ${formatMoney(summary.saved)}，成本率 ${Math.round(summary.expenseRatio * 100)}%。`,
-    `针对「${input.question || "本期表现如何"}」：${top}${
-      summary.expenseRatio > 0.7 ? "成本率偏高，建议先检查固定支出和副业投入上限。" : "成本率处在可控区间，可以继续观察投入回报。"
-    }`
+    )}，结余 ${formatMoney(summary.savings)}${savedText}。`,
+    `${top}${
+      summary.expenseRatio > 0.7
+        ? "钱多多会稍微敲一下小铃铛：成本率偏高，建议先看固定支出和副业投入有没有可以收紧的地方。"
+        : "钱多多觉得现在节奏还算稳，可以继续观察哪些投入真的带来了回报。"
+    }`,
+    `针对「${input.question || "本期表现如何"}」，钱多多的乖巧建议是：先抓最大的一项，不要同时改太多，下一次复盘会更清楚。`
   ].join("\n\n");
 }
 

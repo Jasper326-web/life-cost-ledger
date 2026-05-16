@@ -402,6 +402,10 @@ h1 {
   grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.45fr) 110px minmax(120px, 0.8fr) 82px 54px;
 }
 
+.savingsTable .entryHead {
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.45fr) 110px minmax(120px, 0.8fr) 82px 54px;
+}
+
 .aiPanel textarea {
   width: 100%;
   min-height: 110px;
@@ -416,7 +420,8 @@ h1 {
 }
 
 .aiPanel pre {
-  min-height: 220px;
+  height: clamp(260px, 38vh, 420px);
+  max-height: 420px;
   margin: 0;
   border: 3px solid #15120d;
   background: #15120d;
@@ -425,6 +430,12 @@ h1 {
   white-space: pre-wrap;
   line-height: 1.6;
   overflow: auto;
+  scrollbar-width: none;
+}
+
+.aiPanel pre::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .aiPanel pre.modelOutput {
