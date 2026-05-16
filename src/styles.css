@@ -20,7 +20,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   color: inherit;
   font: inherit;
 }
@@ -126,7 +127,7 @@ h1 {
 }
 
 .segmented button.selected,
-.tabs button.selected {
+.tabItem.selected {
   background: #57c7ff;
 }
 
@@ -259,12 +260,34 @@ h1 {
   margin-bottom: 18px;
 }
 
-.tabs button {
+.tabItem {
   display: inline-flex;
   align-items: center;
   min-height: 48px;
+  border: 3px solid #15120d;
+  background: #fffaf0;
+  box-shadow: 5px 5px 0 #15120d;
+}
+
+.tabSelect,
+.tabDelete {
+  min-height: 48px;
+  border: 0;
+  box-shadow: none;
+}
+
+.tabSelect {
   gap: 8px;
   padding: 10px 14px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tabDelete {
+  width: 42px;
+  border-left: 3px solid #15120d;
+  background: #ff6b4a;
+  font-size: 22px;
 }
 
 .tabs span {
@@ -279,6 +302,24 @@ h1 {
 
 .addTab {
   width: 48px;
+  min-height: 54px;
+}
+
+.categoryForm {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 120px 90px;
+  gap: 10px;
+  margin: -4px 0 18px;
+}
+
+.categoryForm input,
+.categoryForm select {
+  min-width: 0;
+  min-height: 48px;
+  border: 3px solid #15120d;
+  background: #ffffff;
+  padding: 10px 12px;
+  font-weight: 900;
 }
 
 .panelHeader {

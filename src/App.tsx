@@ -104,6 +104,7 @@ export function App() {
   const [notice, setNotice] = useState("");
   const [syncStatus, setSyncStatus] = useState("本地演示数据");
   const [isLoading, setIsLoading] = useState(false);
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
 
   useEffect(() => {
     setPeriodStart(currentPeriod(periodType));
@@ -153,23 +154,34 @@ export function App() {
     setSyncStatus("已连接 Supabase，页面数据来自数据库");
   }
 
-  async function addCategory() {
-    const name = window.prompt("新开支类型名称");
+  async function addCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!accessCode) {
+      setNotice("需要访问码：先输入 APP_ACCESS_CODE，才能保存新分类。");
+      setSyncStatus("分类未保存：缺少访问码");
+      return;
+    }
+
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    const flowType = form.get("flow_type") === "income" ? "income" : "expense";
     if (!name) return;
 
     const optimistic: Category = {
       id: `local-${crypto.randomUUID()}`,
       name,
-      flow_type: "expense",
+      flow_type: flowType,
       sort_order: categories.length + 1
     };
     setCategories((current) => [...current, optimistic]);
     setActiveCategoryId(optimistic.id);
+    event.currentTarget.reset();
+    setIsAddingCategory(false);
 
     const response = await apiFetch("/api/categories", {
       method: "POST",
       accessCode,
-      body: JSON.stringify({ name, flow_type: "expense" })
+      body: JSON.stringify({ name, flow_type: flowType })
     });
     if (response.ok) {
       const saved = (await response.json()) as Category;
@@ -177,8 +189,44 @@ export function App() {
       setActiveCategoryId(saved.id);
       setSyncStatus("分类已保存到数据库");
     } else {
-      setNotice("分类已先加到本地；Supabase 连接好后会写入数据库。");
+      const message = await readApiError(response);
+      setCategories((current) => current.filter((category) => category.id !== optimistic.id));
+      setActiveCategoryId(categories[0]?.id || "");
+      setNotice(`分类保存失败：${message}`);
       setSyncStatus(`分类保存到数据库失败（${response.status}）`);
+    }
+  }
+
+  async function deleteCategory(category: Category) {
+    if (categories.length <= 1) {
+      setNotice("至少需要保留一个分类。");
+      return;
+    }
+    const confirmed = window.confirm(`删除「${category.name}」？该分类下的明细也会一起删除。`);
+    if (!confirmed) return;
+
+    const previousCategories = categories;
+    const previousEntries = entries;
+    const nextCategories = categories.filter((item) => item.id !== category.id);
+    setCategories(nextCategories);
+    setEntries((current) => current.filter((entry) => entry.category_id !== category.id));
+    if (activeCategoryId === category.id) setActiveCategoryId(nextCategories[0]?.id || "");
+
+    if (category.id.startsWith("local-")) return;
+    const response = await apiFetch(`/api/categories?id=${encodeURIComponent(category.id)}`, {
+      method: "DELETE",
+      accessCode
+    });
+    if (response.ok) {
+      setSyncStatus("分类已删除，相关明细已同步移除");
+      void loadLedger();
+    } else {
+      const message = await readApiError(response);
+      setCategories(previousCategories);
+      setEntries(previousEntries);
+      setActiveCategoryId(category.id);
+      setNotice(`分类删除失败：${message}`);
+      setSyncStatus(`分类删除失败（${response.status}）`);
     }
   }
 
@@ -421,20 +469,30 @@ export function App() {
         <section className="ledgerPanel">
           <div className="tabs">
             {categories.map((category) => (
-              <button
-                key={category.id}
-                type="button"
-                className={category.id === activeCategoryId ? "selected" : ""}
-                onClick={() => setActiveCategoryId(category.id)}
-              >
-                <span>{category.flow_type === "income" ? "入" : "出"}</span>
-                {category.name}
-              </button>
+              <div key={category.id} className={`tabItem ${category.id === activeCategoryId ? "selected" : ""}`}>
+                <button type="button" className="tabSelect" onClick={() => setActiveCategoryId(category.id)}>
+                  <span>{category.flow_type === "income" ? "入" : "出"}</span>
+                  {category.name}
+                </button>
+                <button type="button" className="tabDelete" onClick={() => void deleteCategory(category)} aria-label={`删除${category.name}`}>
+                  ×
+                </button>
+              </div>
             ))}
-            <button type="button" className="addTab" onClick={addCategory} aria-label="添加类型">
+            <button type="button" className="addTab" onClick={() => setIsAddingCategory((value) => !value)} aria-label="添加类型">
               +
             </button>
           </div>
+          {isAddingCategory && (
+            <form className="categoryForm" onSubmit={addCategory}>
+              <input name="name" placeholder="新分类名称" autoFocus />
+              <select name="flow_type" defaultValue="expense">
+                <option value="expense">支出</option>
+                <option value="income">收入</option>
+              </select>
+              <button type="submit">保存</button>
+            </form>
+          )}
 
           <div className="panelHeader">
             <div>
