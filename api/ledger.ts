@@ -1,43 +1,44 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { assertAccess } from "./_shared/guard";
-import { getSupabase, isSupabaseConfigured } from "./_shared/supabase";
+import { isSupabaseConfigured, supabaseRest } from "./_shared/supabase";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
-  if (assertAccess(request, response)) return;
+  try {
+    if (assertAccess(request, response)) return;
 
-  if (request.method === "GET") {
-    if (!isSupabaseConfigured()) return response.status(200).json({ categories: [], entries: [] });
+    if (request.method === "GET") {
+      if (!isSupabaseConfigured()) return response.status(200).json({ categories: [], entries: [] });
 
-    const scope = String(request.query.scope || "personal");
-    const periodType = String(request.query.periodType || "month");
-    const periodStart = String(request.query.periodStart || "");
-    const supabase = getSupabase();
+      const scope = String(request.query.scope || "personal");
+      const periodType = String(request.query.periodType || "month");
+      const periodStart = String(request.query.periodStart || "");
+      const entryQuery = new URLSearchParams({
+        select: "*",
+        scope: `eq.${scope}`,
+        period_type: `eq.${periodType}`,
+        period_start: `eq.${periodStart}`,
+        order: "created_at.asc"
+      });
 
-    const [{ data: categories, error: categoryError }, { data: entries, error: entryError }] =
-      await Promise.all([
-        supabase.from("ledger_categories").select("*").order("sort_order", { ascending: true }),
-        supabase
-          .from("ledger_entries")
-          .select("*, ledger_categories(*)")
-          .eq("scope", scope)
-          .eq("period_type", periodType)
-          .eq("period_start", periodStart)
-          .order("created_at", { ascending: true })
+      const [categories, entries] = await Promise.all([
+        supabaseRest("ledger_categories?select=*&order=sort_order.asc"),
+        supabaseRest(`ledger_entries?${entryQuery.toString()}`)
       ]);
 
-    if (categoryError || entryError) {
-      return response.status(500).json({ error: categoryError?.message || entryError?.message });
+      return response.status(200).json({ categories, entries });
     }
 
-    return response.status(200).json({ categories, entries });
-  }
+    if (request.method === "POST") {
+      const rows = await supabaseRest<unknown[]>("ledger_entries?select=*", {
+        method: "POST",
+        headers: { Prefer: "return=representation" },
+        body: JSON.stringify(request.body)
+      });
+      return response.status(200).json(rows[0]);
+    }
 
-  if (request.method === "POST") {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.from("ledger_entries").insert(request.body).select("*").single();
-    if (error) return response.status(500).json({ error: error.message });
-    return response.status(200).json(data);
+    response.status(405).json({ error: "Method not allowed" });
+  } catch (error) {
+    response.status(500).json({ error: error instanceof Error ? error.message : "Unexpected API error" });
   }
-
-  response.status(405).json({ error: "Method not allowed" });
 }
