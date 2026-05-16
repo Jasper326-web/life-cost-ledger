@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { assertAccess } from "./_shared/guard";
-import { supabaseRest } from "./_shared/supabase";
-import { runModelAnalysis } from "./_shared/analysis";
-import type { Category, Entry, PeriodType, ScopeType } from "./_shared/types";
+import { assertAccess } from "./shared/guard";
+import { supabaseRest } from "./shared/supabase";
+import { runModelAnalysis } from "./shared/analysis";
+import type { Category, Entry, PeriodType, ScopeType } from "./shared/types";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {

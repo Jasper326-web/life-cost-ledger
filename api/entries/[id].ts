@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { assertAccess } from "../_shared/guard";
-import { supabaseRest } from "../_shared/supabase";
+import { assertAccess } from "../shared/guard";
+import { supabaseRest } from "../shared/supabase";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
