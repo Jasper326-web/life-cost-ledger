@@ -9,6 +9,13 @@ type AnalysisInput = {
   entries: Entry[];
 };
 
+export type AnalysisResult = {
+  text: string;
+  source: "model" | "fallback";
+  model?: string;
+  error?: string;
+};
+
 export function summarizeLedger(input: Omit<AnalysisInput, "question">) {
   const categoryMap = new Map(input.categories.map((category) => [category.id, category]));
   const totals = input.entries.reduce(
@@ -63,37 +70,71 @@ export function fallbackAnalysis(input: AnalysisInput) {
 
 export async function runModelAnalysis(input: AnalysisInput) {
   const apiKey = process.env.DASHSCOPE_API_KEY || process.env.OPENAI_API_KEY;
-  if (!apiKey) return fallbackAnalysis(input);
+  if (!apiKey) {
+    return {
+      text: fallbackAnalysis(input),
+      source: "fallback",
+      error: "缺少模型 API Key，已使用本地规则分析。"
+    } satisfies AnalysisResult;
+  }
 
   const baseUrl = stripTrailingSlash(
     process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1"
   );
   const model = process.env.AI_MODEL || process.env.OPENAI_MODEL || "qwen-plus";
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: "你是务实的中文财务分析助手。只基于给定 JSON 分析，不编造数据。输出概览、风险、建议。"
-        },
-        {
-          role: "user",
-          content: JSON.stringify({ ...input, summary: summarizeLedger(input) })
-        }
-      ]
-    })
-  });
+  try {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: "你是务实的中文财务分析助手。只基于给定 JSON 分析，不编造数据。输出概览、风险、建议。"
+          },
+          {
+            role: "user",
+            content: JSON.stringify({ ...input, summary: summarizeLedger(input) })
+          }
+        ]
+      })
+    });
 
-  if (!response.ok) return fallbackAnalysis(input);
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || fallbackAnalysis(input);
+    if (!response.ok) {
+      const detail = await response.text();
+      return {
+        text: fallbackAnalysis(input),
+        source: "fallback",
+        model,
+        error: `模型接口返回 ${response.status}：${detail.slice(0, 240)}`
+      } satisfies AnalysisResult;
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+    if (!text) {
+      return {
+        text: fallbackAnalysis(input),
+        source: "fallback",
+        model,
+        error: "模型接口没有返回可用文本，已使用本地规则分析。"
+      } satisfies AnalysisResult;
+    }
+
+    return { text, source: "model", model } satisfies AnalysisResult;
+  } catch (error) {
+    return {
+      text: fallbackAnalysis(input),
+      source: "fallback",
+      model,
+      error: error instanceof Error ? error.message : "模型请求失败。"
+    } satisfies AnalysisResult;
+  }
 }
 
 export function formatMoney(value: number) {

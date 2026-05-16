@@ -22,6 +22,17 @@ type Entry = {
   note?: string;
 };
 
+type AnalysisResponse = {
+  analysis:
+    | string
+    | {
+        text: string;
+        source: "model" | "fallback";
+        model?: string;
+        error?: string;
+      };
+};
+
 const defaultCategories: Category[] = [
   { id: "income", name: "收入", flow_type: "income", sort_order: 0 },
   { id: "life", name: "生活成本", flow_type: "expense", sort_order: 1 },
@@ -70,8 +81,10 @@ export function App() {
   const [activeCategoryId, setActiveCategoryId] = useState("life");
   const [question, setQuestion] = useState("本期哪些成本需要优先优化？");
   const [analysis, setAnalysis] = useState("连接 Supabase 后，会基于数据库记录回答；本地也会保留演示视图。");
+  const [analysisSource, setAnalysisSource] = useState<"idle" | "model" | "fallback" | "error">("idle");
   const [accessCode, setAccessCode] = useState(() => localStorage.getItem("appAccessCode") || "");
   const [notice, setNotice] = useState("");
+  const [syncStatus, setSyncStatus] = useState("本地演示数据");
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -102,6 +115,7 @@ export function App() {
 
     if (!response.ok) {
       if (response.status === 401) setNotice("需要访问码：请输入 APP_ACCESS_CODE。");
+      setSyncStatus(`数据库读取失败（${response.status}），当前显示本地数据`);
       return;
     }
 
@@ -112,7 +126,8 @@ export function App() {
         setActiveCategoryId(data.categories[0].id);
       }
     }
-    if (data.entries?.length) setEntries(data.entries);
+    if (data.entries) setEntries(data.entries);
+    setSyncStatus("已连接 Supabase，页面数据来自数据库");
   }
 
   async function addCategory() {
@@ -137,8 +152,10 @@ export function App() {
       const saved = (await response.json()) as Category;
       setCategories((current) => current.map((category) => (category.id === optimistic.id ? saved : category)));
       setActiveCategoryId(saved.id);
+      setSyncStatus("分类已保存到数据库");
     } else {
       setNotice("分类已先加到本地；Supabase 连接好后会写入数据库。");
+      setSyncStatus(`分类保存到数据库失败（${response.status}）`);
     }
   }
 
@@ -172,21 +189,26 @@ export function App() {
     if (response.ok) {
       const saved = (await response.json()) as Entry;
       setEntries((current) => current.map((entry) => (entry.id === nextEntry.id ? saved : entry)));
+      setSyncStatus("记录已保存到数据库，KPI 和图表已更新");
+      void loadLedger();
     } else {
       setNotice("记录已先保存在本地视图；Supabase 环境变量完成后可写入数据库。");
+      setSyncStatus(`记录保存到数据库失败（${response.status}），KPI 和图表已按本地输入更新`);
     }
   }
 
   async function deleteEntry(id: string) {
     setEntries((current) => current.filter((entry) => entry.id !== id));
     if (!id.startsWith("local-") && !id.startsWith("demo-")) {
-      await apiFetch(`/api/entries/${id}`, { method: "DELETE", accessCode });
+      const response = await apiFetch(`/api/entries/${id}`, { method: "DELETE", accessCode });
+      setSyncStatus(response.ok ? "记录已从数据库删除，KPI 和图表已更新" : `数据库删除失败（${response.status}）`);
     }
   }
 
   async function askAi() {
     setIsLoading(true);
     setAnalysis("分析中...");
+    setAnalysisSource("idle");
     const response = await apiFetch("/api/analyze", {
       method: "POST",
       accessCode,
@@ -194,10 +216,21 @@ export function App() {
     });
 
     if (response.ok) {
-      const data = (await response.json()) as { analysis: string };
-      setAnalysis(data.analysis);
+      const data = (await response.json()) as AnalysisResponse;
+      if (typeof data.analysis === "string") {
+        setAnalysis(data.analysis);
+        setAnalysisSource("model");
+      } else {
+        const label =
+          data.analysis.source === "model"
+            ? `大模型分析 · ${data.analysis.model || "model"}`
+            : `本地规则兜底${data.analysis.error ? `\n原因：${data.analysis.error}` : ""}`;
+        setAnalysis(`${label}\n\n${data.analysis.text}`);
+        setAnalysisSource(data.analysis.source);
+      }
     } else {
-      setAnalysis(makeLocalAnalysis(question, summary));
+      setAnalysis(`接口调用失败（${response.status}），以下为本地规则分析：\n\n${makeLocalAnalysis(question, summary)}`);
+      setAnalysisSource("error");
     }
     setIsLoading(false);
   }
@@ -243,6 +276,11 @@ export function App() {
           </button>
         </section>
       )}
+
+      <section className="syncRail">
+        <strong>同步状态</strong>
+        <span>{syncStatus}</span>
+      </section>
 
       <section className="kpis">
         <Kpi tone="yellow" label="收入" value={formatMoney(summary.income)} mark="¥" />
@@ -299,8 +337,8 @@ export function App() {
               <input name="item_name" placeholder="例如：房租 / 工具订阅" />
               <input name="amount" placeholder="0" type="number" min="0" />
               <input name="note" placeholder="可选" />
-              <button type="submit" aria-label="添加子项">
-                +
+              <button type="submit" aria-label="保存子项">
+                保存
               </button>
             </form>
           </div>
@@ -318,7 +356,7 @@ export function App() {
           <button className="askButton" type="button" onClick={() => void askAi()} disabled={isLoading}>
             {isLoading ? "分析中" : "生成分析"}
           </button>
-          <pre>{analysis}</pre>
+          <pre className={analysisSource === "model" ? "modelOutput" : ""}>{analysis}</pre>
         </aside>
       </section>
 
