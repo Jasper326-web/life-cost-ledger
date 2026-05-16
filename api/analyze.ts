@@ -1,12 +1,39 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { assertAccess } from "./shared/guard";
-import { supabaseRest } from "./shared/supabase";
-import { runModelAnalysis } from "./shared/analysis";
-import type { Category, Entry, PeriodType, ScopeType } from "./shared/types";
+
+type PeriodType = "month" | "year";
+type ScopeType = "personal" | "family";
+type FlowType = "income" | "expense";
+
+type Category = {
+  id: string;
+  name: string;
+  flow_type: FlowType;
+  sort_order: number;
+};
+
+type Entry = {
+  id: string;
+  category_id: string;
+  scope: ScopeType;
+  period_type: PeriodType;
+  period_start: string;
+  item_name: string;
+  amount: number;
+  note: string;
+};
+
+type AnalysisInput = {
+  question: string;
+  periodType: PeriodType;
+  scope: ScopeType;
+  periodStart: string;
+  categories: Category[];
+  entries: Entry[];
+};
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
-    if (assertAccess(request, response)) return;
+    if (denyWithoutAccessCode(request, response)) return;
     if (request.method !== "POST") return response.status(405).json({ error: "Method not allowed" });
 
     const scope = (request.body.scope || "personal") as ScopeType;
@@ -31,12 +58,151 @@ export default async function handler(request: VercelRequest, response: VercelRe
       scope,
       periodType,
       periodStart,
-      categories: categories || [],
-      entries: entries || []
+      categories,
+      entries
     });
 
     response.status(200).json({ analysis });
   } catch (error) {
     response.status(500).json({ error: error instanceof Error ? error.message : "Unexpected API error" });
   }
+}
+
+async function runModelAnalysis(input: AnalysisInput) {
+  const apiKey = process.env.DASHSCOPE_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return { text: fallbackAnalysis(input), source: "fallback", error: "缺少模型 API Key，已使用本地规则分析。" };
+  }
+
+  const baseUrl = stripTrailingSlash(
+    process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  );
+  const model = process.env.AI_MODEL || process.env.OPENAI_MODEL || "qwen-plus";
+
+  try {
+    const result = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: "你是务实的中文财务分析助手。只基于给定 JSON 分析，不编造数据。输出概览、风险、建议。"
+          },
+          {
+            role: "user",
+            content: JSON.stringify({ ...input, summary: summarizeLedger(input) })
+          }
+        ]
+      })
+    });
+
+    if (!result.ok) {
+      return {
+        text: fallbackAnalysis(input),
+        source: "fallback",
+        model,
+        error: `模型接口返回 ${result.status}：${(await result.text()).slice(0, 240)}`
+      };
+    }
+
+    const data = await result.json();
+    const text = data.choices?.[0]?.message?.content;
+    return text
+      ? { text, source: "model", model }
+      : { text: fallbackAnalysis(input), source: "fallback", model, error: "模型接口没有返回可用文本。" };
+  } catch (error) {
+    return {
+      text: fallbackAnalysis(input),
+      source: "fallback",
+      model,
+      error: error instanceof Error ? error.message : "模型请求失败。"
+    };
+  }
+}
+
+function summarizeLedger(input: Omit<AnalysisInput, "question">) {
+  const categoryMap = new Map(input.categories.map((category) => [category.id, category]));
+  let income = 0;
+  let expense = 0;
+  const byCategory = new Map<string, { name: string; amount: number; flowType: string }>();
+
+  for (const entry of input.entries) {
+    const category = categoryMap.get(entry.category_id);
+    const flowType = category?.flow_type || "expense";
+    const amount = Number(entry.amount) || 0;
+    if (flowType === "income") income += amount;
+    if (flowType === "expense") expense += amount;
+    const name = category?.name || "未分类";
+    const bucket = byCategory.get(name) || { name, amount: 0, flowType };
+    bucket.amount += amount;
+    byCategory.set(name, bucket);
+  }
+
+  const categories = Array.from(byCategory.values()).sort((a, b) => b.amount - a.amount);
+  return {
+    income,
+    expense,
+    savings: income - expense,
+    expenseRatio: income > 0 ? expense / income : 0,
+    categories,
+    largestExpense: categories.find((category) => category.flowType === "expense")
+  };
+}
+
+function fallbackAnalysis(input: AnalysisInput) {
+  const summary = summarizeLedger(input);
+  const scopeLabel = input.scope === "family" ? "家庭" : "个人";
+  const periodLabel = input.periodType === "year" ? "年度" : "月度";
+  const top = summary.largestExpense
+    ? `${summary.largestExpense.name} 是最大的成本桶，金额为 ${formatMoney(summary.largestExpense.amount)}。`
+    : "当前没有成本类记录。";
+
+  return [
+    `${scopeLabel}${periodLabel}概览：收入 ${formatMoney(summary.income)}，成本 ${formatMoney(
+      summary.expense
+    )}，结余 ${formatMoney(summary.savings)}，成本率 ${Math.round(summary.expenseRatio * 100)}%。`,
+    `针对「${input.question || "本期表现如何"}」：${top}${
+      summary.expenseRatio > 0.7 ? "成本率偏高，建议先检查固定支出和副业投入上限。" : "成本率处在可控区间，可以继续观察投入回报。"
+    }`
+  ].join("\n\n");
+}
+
+function denyWithoutAccessCode(request: VercelRequest, response: VercelResponse) {
+  const expected = process.env.APP_ACCESS_CODE;
+  if (!expected) return false;
+  if (request.headers["x-app-access-code"] === expected) return false;
+  response.status(401).json({ error: "ACCESS_CODE_REQUIRED" });
+  return true;
+}
+
+async function supabaseRest<T>(path: string, init: RequestInit = {}) {
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) throw new Error("Missing Supabase environment variables.");
+
+  const headers = new Headers(init.headers);
+  headers.set("apikey", key);
+  headers.set("Authorization", `Bearer ${key}`);
+  headers.set("Content-Type", "application/json");
+
+  const result = await fetch(`${url.replace(/\/$/, "")}/rest/v1/${path}`, { ...init, headers });
+  if (!result.ok) throw new Error(`Supabase REST ${result.status}: ${(await result.text()).slice(0, 500)}`);
+  return (await result.json()) as T;
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function stripTrailingSlash(value: string) {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
 }
