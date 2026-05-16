@@ -12,7 +12,40 @@ npm run dev
 
 ## Supabase
 
-执行 `supabase/migrations/202605060001_cost_ledger.sql` 创建表、RLS 和示例数据。
+按 `supabase/migrations` 里的顺序执行 SQL，创建表、RLS、索引和基础数据。
+
+### 表关系
+
+`ledger_categories` 是顶部 tab/分类表：
+
+- `id`：分类主键。
+- `name`：展示名称，例如收入、生活成本、副业投入。
+- `flow_type`：`income` 表示收入类，`expense` 表示成本类。
+
+`ledger_entries` 是每个 tab 下的子项/明细表：
+
+- `category_id`：关联 `ledger_categories.id`，决定这条明细属于哪个 tab。
+- `person`：关联 `ledger_people.code`，区分阳宝、雨宝。
+- `scope`：`personal` 表示个人记录，`family` 表示家庭共同记录。
+- `period_type` + `period_start`：决定这条记录属于哪个月或哪一年。
+- `item_name` + `amount`：子项名称和金额。
+
+`ledger_people` 是人物字典表：
+
+- `code`：人物稳定标识，目前是 `yangbao` / `yubao`。
+- `display_name`：页面展示名，阳宝 / 雨宝。
+
+`family_savings` 是家庭储蓄金表，和收入/成本明细分开：
+
+- `person`：关联 `ledger_people.code`，标记这笔储蓄来源归属。
+- `period_type` + `period_start`：决定储蓄属于哪个月或哪一年。
+- `source_name` + `amount`：储蓄来源和已储蓄金额。
+
+汇总逻辑：
+
+- 个人模式：只统计 `scope = personal` 且 `person` 等于当前人物的 `ledger_entries`。
+- 家庭模式：统计所有 `ledger_entries`，也就是阳宝、雨宝和家庭共同记录合并。
+- 家庭储蓄金：来自 `family_savings`，单独入表，但会进入 KPI 和图表说明。
 
 环境变量：
 
