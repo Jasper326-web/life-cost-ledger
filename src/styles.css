@@ -231,6 +231,10 @@ h1 {
   background: #57c7ff;
 }
 
+.purple {
+  background: #c084fc;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.65fr);
@@ -239,8 +243,16 @@ h1 {
 
 .ledgerPanel,
 .aiPanel,
+.savingsPanel,
 .chartPanel {
   padding: 18px;
+}
+
+.savingsPanel {
+  margin-top: 24px;
+  border: 4px solid #15120d;
+  background: #fffaf0;
+  box-shadow: 8px 8px 0 #15120d;
 }
 
 .tabs {
@@ -296,7 +308,7 @@ h1 {
 .entryHead,
 .entryRow {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(120px, 0.5fr) minmax(120px, 0.8fr) 82px;
+  grid-template-columns: minmax(140px, 1fr) minmax(120px, 0.45fr) minmax(120px, 0.8fr) 82px 54px;
   gap: 3px;
 }
 
@@ -312,7 +324,9 @@ h1 {
 }
 
 .entryRow strong,
-.entryRow span {
+.entryRow span,
+.entryRow input,
+.entryRow select {
   overflow-wrap: anywhere;
 }
 
@@ -327,6 +341,16 @@ h1 {
 .entryRow input {
   border: 0;
   min-width: 0;
+}
+
+.entryRow select {
+  border: 0;
+  min-width: 0;
+  font-weight: 900;
+}
+
+.savingRow {
+  grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.45fr) 110px minmax(120px, 0.8fr) 82px 54px;
 }
 
 .aiPanel textarea {

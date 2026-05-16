@@ -3,45 +3,20 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
     if (denyWithoutAccessCode(request, response)) return;
+    const id = String(request.query.id);
 
-    if (request.method === "GET") {
-      const scope = String(request.query.scope || "personal");
-      const person = String(request.query.person || "yangbao");
-      const periodType = String(request.query.periodType || "month");
-      const periodStart = String(request.query.periodStart || "");
-      const entryQuery = new URLSearchParams({
-        select: "*",
-        period_type: `eq.${periodType}`,
-        period_start: `eq.${periodStart}`,
-        order: "created_at.asc"
-      });
-      if (scope === "personal") {
-        entryQuery.set("scope", "eq.personal");
-        entryQuery.set("person", `eq.${person}`);
-      }
-      const savingQuery = new URLSearchParams({
-        select: "*",
-        period_type: `eq.${periodType}`,
-        period_start: `eq.${periodStart}`,
-        order: "created_at.asc"
-      });
-
-      const [categories, entries, savings] = await Promise.all([
-        supabaseRest("ledger_categories?select=*&order=sort_order.asc"),
-        supabaseRest(`ledger_entries?${entryQuery.toString()}`),
-        supabaseRest(`family_savings?${savingQuery.toString()}`)
-      ]);
-
-      return response.status(200).json({ categories, entries, savings });
-    }
-
-    if (request.method === "POST") {
-      const rows = await supabaseRest<unknown[]>("ledger_entries?select=*", {
-        method: "POST",
+    if (request.method === "PATCH") {
+      const rows = await supabaseRest<unknown[]>(`family_savings?id=eq.${id}&select=*`, {
+        method: "PATCH",
         headers: { Prefer: "return=representation" },
         body: JSON.stringify(request.body)
       });
       return response.status(200).json(rows[0]);
+    }
+
+    if (request.method === "DELETE") {
+      await supabaseRest(`family_savings?id=eq.${id}`, { method: "DELETE" });
+      return response.status(200).json({ ok: true });
     }
 
     response.status(405).json({ error: "Method not allowed" });
@@ -70,5 +45,6 @@ async function supabaseRest<T>(path: string, init: RequestInit = {}) {
 
   const result = await fetch(`${url.replace(/\/$/, "")}/rest/v1/${path}`, { ...init, headers });
   if (!result.ok) throw new Error(`Supabase REST ${result.status}: ${(await result.text()).slice(0, 500)}`);
+  if (result.status === 204) return undefined as T;
   return (await result.json()) as T;
 }

@@ -4,39 +4,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
   try {
     if (denyWithoutAccessCode(request, response)) return;
 
-    if (request.method === "GET") {
-      const scope = String(request.query.scope || "personal");
-      const person = String(request.query.person || "yangbao");
-      const periodType = String(request.query.periodType || "month");
-      const periodStart = String(request.query.periodStart || "");
-      const entryQuery = new URLSearchParams({
-        select: "*",
-        period_type: `eq.${periodType}`,
-        period_start: `eq.${periodStart}`,
-        order: "created_at.asc"
-      });
-      if (scope === "personal") {
-        entryQuery.set("scope", "eq.personal");
-        entryQuery.set("person", `eq.${person}`);
-      }
-      const savingQuery = new URLSearchParams({
-        select: "*",
-        period_type: `eq.${periodType}`,
-        period_start: `eq.${periodStart}`,
-        order: "created_at.asc"
-      });
-
-      const [categories, entries, savings] = await Promise.all([
-        supabaseRest("ledger_categories?select=*&order=sort_order.asc"),
-        supabaseRest(`ledger_entries?${entryQuery.toString()}`),
-        supabaseRest(`family_savings?${savingQuery.toString()}`)
-      ]);
-
-      return response.status(200).json({ categories, entries, savings });
-    }
-
     if (request.method === "POST") {
-      const rows = await supabaseRest<unknown[]>("ledger_entries?select=*", {
+      const rows = await supabaseRest<unknown[]>("family_savings?select=*", {
         method: "POST",
         headers: { Prefer: "return=representation" },
         body: JSON.stringify(request.body)

@@ -22,6 +22,16 @@ type Entry = {
   note: string;
 };
 
+type FamilySaving = {
+  id: string;
+  period_type: PeriodType;
+  period_start: string;
+  person: "yangbao" | "yubao";
+  source_name: string;
+  amount: number;
+  note: string;
+};
+
 type AnalysisInput = {
   question: string;
   periodType: PeriodType;
@@ -29,6 +39,7 @@ type AnalysisInput = {
   periodStart: string;
   categories: Category[];
   entries: Entry[];
+  savings: FamilySaving[];
 };
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
@@ -37,20 +48,31 @@ export default async function handler(request: VercelRequest, response: VercelRe
     if (request.method !== "POST") return response.status(405).json({ error: "Method not allowed" });
 
     const scope = (request.body.scope || "personal") as ScopeType;
+    const person = String(request.body.person || "yangbao");
     const periodType = (request.body.periodType || "month") as PeriodType;
     const periodStart = request.body.periodStart as string;
     const question = request.body.question || "本期收支结构有什么问题？";
     const entryQuery = new URLSearchParams({
       select: "*",
-      scope: `eq.${scope}`,
+      period_type: `eq.${periodType}`,
+      period_start: `eq.${periodStart}`,
+      order: "created_at.asc"
+    });
+    if (scope === "personal") {
+      entryQuery.set("scope", "eq.personal");
+      entryQuery.set("person", `eq.${person}`);
+    }
+    const savingQuery = new URLSearchParams({
+      select: "*",
       period_type: `eq.${periodType}`,
       period_start: `eq.${periodStart}`,
       order: "created_at.asc"
     });
 
-    const [categories, entries] = await Promise.all([
+    const [categories, entries, savings] = await Promise.all([
       supabaseRest<Category[]>("ledger_categories?select=*&order=sort_order.asc"),
-      supabaseRest<Entry[]>(`ledger_entries?${entryQuery.toString()}`)
+      supabaseRest<Entry[]>(`ledger_entries?${entryQuery.toString()}`),
+      supabaseRest<FamilySaving[]>(`family_savings?${savingQuery.toString()}`)
     ]);
 
     const analysis = await runModelAnalysis({
@@ -59,7 +81,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
       periodType,
       periodStart,
       categories,
-      entries
+      entries,
+      savings
     });
 
     response.status(200).json({ analysis });
@@ -129,6 +152,7 @@ function summarizeLedger(input: Omit<AnalysisInput, "question">) {
   const categoryMap = new Map(input.categories.map((category) => [category.id, category]));
   let income = 0;
   let expense = 0;
+  let saved = 0;
   const byCategory = new Map<string, { name: string; amount: number; flowType: string }>();
 
   for (const entry of input.entries) {
@@ -142,11 +166,13 @@ function summarizeLedger(input: Omit<AnalysisInput, "question">) {
     bucket.amount += amount;
     byCategory.set(name, bucket);
   }
+  for (const saving of input.savings || []) saved += Number(saving.amount) || 0;
 
   const categories = Array.from(byCategory.values()).sort((a, b) => b.amount - a.amount);
   return {
     income,
     expense,
+    saved,
     savings: income - expense,
     expenseRatio: income > 0 ? expense / income : 0,
     categories,
@@ -165,7 +191,7 @@ function fallbackAnalysis(input: AnalysisInput) {
   return [
     `${scopeLabel}${periodLabel}概览：收入 ${formatMoney(summary.income)}，成本 ${formatMoney(
       summary.expense
-    )}，结余 ${formatMoney(summary.savings)}，成本率 ${Math.round(summary.expenseRatio * 100)}%。`,
+    )}，结余 ${formatMoney(summary.savings)}，家庭储蓄金 ${formatMoney(summary.saved)}，成本率 ${Math.round(summary.expenseRatio * 100)}%。`,
     `针对「${input.question || "本期表现如何"}」：${top}${
       summary.expenseRatio > 0.7 ? "成本率偏高，建议先检查固定支出和副业投入上限。" : "成本率处在可控区间，可以继续观察投入回报。"
     }`

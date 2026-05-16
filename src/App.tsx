@@ -3,6 +3,8 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 type PeriodType = "month" | "year";
 type ScopeType = "personal" | "family";
 type FlowType = "income" | "expense";
+type PersonType = "yangbao" | "yubao";
+type ChartFlowType = FlowType | "saving";
 
 type Category = {
   id: string;
@@ -15,9 +17,20 @@ type Entry = {
   id: string;
   category_id: string;
   scope: ScopeType;
+  person: PersonType;
   period_type: PeriodType;
   period_start: string;
   item_name: string;
+  amount: number;
+  note?: string;
+};
+
+type FamilySaving = {
+  id: string;
+  period_type: PeriodType;
+  period_start: string;
+  person: PersonType;
+  source_name: string;
   amount: number;
   note?: string;
 };
@@ -44,6 +57,7 @@ const demoEntries: Entry[] = [
     id: "demo-1",
     category_id: "income",
     scope: "personal",
+    person: "yangbao",
     period_type: "month",
     period_start: currentPeriod("month"),
     item_name: "主业收入",
@@ -54,6 +68,7 @@ const demoEntries: Entry[] = [
     id: "demo-2",
     category_id: "life",
     scope: "personal",
+    person: "yangbao",
     period_type: "month",
     period_start: currentPeriod("month"),
     item_name: "房租与餐食",
@@ -64,6 +79,7 @@ const demoEntries: Entry[] = [
     id: "demo-3",
     category_id: "side",
     scope: "personal",
+    person: "yangbao",
     period_type: "month",
     period_start: currentPeriod("month"),
     item_name: "工具订阅",
@@ -75,9 +91,11 @@ const demoEntries: Entry[] = [
 export function App() {
   const [periodType, setPeriodType] = useState<PeriodType>("month");
   const [scope, setScope] = useState<ScopeType>("personal");
+  const [person, setPerson] = useState<PersonType>("yangbao");
   const [periodStart, setPeriodStart] = useState(currentPeriod("month"));
   const [categories, setCategories] = useState<Category[]>(defaultCategories);
   const [entries, setEntries] = useState<Entry[]>(demoEntries);
+  const [savings, setSavings] = useState<FamilySaving[]>([]);
   const [activeCategoryId, setActiveCategoryId] = useState("life");
   const [question, setQuestion] = useState("本期哪些成本需要优先优化？");
   const [analysis, setAnalysis] = useState("连接 Supabase 后，会基于数据库记录回答；本地也会保留演示视图。");
@@ -93,24 +111,28 @@ export function App() {
 
   useEffect(() => {
     void loadLedger();
-  }, [scope, periodType, periodStart]);
+  }, [scope, person, periodType, periodStart]);
 
   const visibleEntries = useMemo(
     () =>
       entries.filter(
-        (entry) => entry.scope === scope && entry.period_type === periodType && entry.period_start === periodStart
+        (entry) =>
+          entry.period_type === periodType &&
+          entry.period_start === periodStart &&
+          (scope === "family" || (entry.scope === "personal" && entry.person === person))
       ),
-    [entries, periodStart, periodType, scope]
+    [entries, periodStart, periodType, scope, person]
   );
 
   const activeCategory = categories.find((category) => category.id === activeCategoryId) || categories[0];
   const activeEntries = visibleEntries.filter((entry) => entry.category_id === activeCategory?.id);
-  const summary = summarize(categories, visibleEntries);
+  const visibleSavings = savings.filter((saving) => saving.period_type === periodType && saving.period_start === periodStart);
+  const summary = summarize(categories, visibleEntries, visibleSavings);
   const chartRows = summary.byCategory.filter((row) => row.amount > 0);
 
   async function loadLedger() {
     setNotice("");
-    const query = new URLSearchParams({ scope, periodType, periodStart });
+    const query = new URLSearchParams({ scope, person, periodType, periodStart });
     const response = await apiFetch(`/api/ledger?${query.toString()}`, { accessCode });
 
     if (!response.ok) {
@@ -119,7 +141,7 @@ export function App() {
       return;
     }
 
-    const data = (await response.json()) as { categories?: Category[]; entries?: Entry[] };
+    const data = (await response.json()) as { categories?: Category[]; entries?: Entry[]; savings?: FamilySaving[] };
     if (data.categories?.length) {
       setCategories(data.categories);
       if (!data.categories.some((category) => category.id === activeCategoryId)) {
@@ -127,6 +149,7 @@ export function App() {
       }
     }
     if (data.entries) setEntries(data.entries);
+    if (data.savings) setSavings(data.savings);
     setSyncStatus("已连接 Supabase，页面数据来自数据库");
   }
 
@@ -171,7 +194,8 @@ export function App() {
     const nextEntry: Entry = {
       id: `local-${crypto.randomUUID()}`,
       category_id: activeCategory.id,
-      scope,
+      scope: scope === "family" ? "family" : "personal",
+      person,
       period_type: periodType,
       period_start: periodStart,
       item_name: itemName,
@@ -197,11 +221,97 @@ export function App() {
     }
   }
 
+  async function updateEntry(event: FormEvent<HTMLFormElement>, id: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const patch = {
+      item_name: String(form.get("item_name") || "").trim(),
+      amount: Number(form.get("amount")),
+      note: String(form.get("note") || "")
+    };
+    if (!patch.item_name || !Number.isFinite(patch.amount) || patch.amount < 0) return;
+    setEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)));
+    if (id.startsWith("local-") || id.startsWith("demo-")) {
+      setSyncStatus("本地演示记录已修改，真实数据请新增后保存到数据库");
+      return;
+    }
+    const response = await apiFetch(`/api/entries/${id}`, {
+      method: "PATCH",
+      accessCode,
+      body: JSON.stringify(patch)
+    });
+    setSyncStatus(response.ok ? "记录修改已保存到数据库，KPI 和图表已更新" : `记录修改保存失败（${response.status}）`);
+    if (response.ok) void loadLedger();
+  }
+
   async function deleteEntry(id: string) {
     setEntries((current) => current.filter((entry) => entry.id !== id));
     if (!id.startsWith("local-") && !id.startsWith("demo-")) {
       const response = await apiFetch(`/api/entries/${id}`, { method: "DELETE", accessCode });
       setSyncStatus(response.ok ? "记录已从数据库删除，KPI 和图表已更新" : `数据库删除失败（${response.status}）`);
+    }
+  }
+
+  async function addSaving(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const amount = Number(form.get("amount"));
+    const sourceName = String(form.get("source_name") || "").trim();
+    if (!sourceName || !Number.isFinite(amount) || amount < 0) return;
+
+    const nextSaving: FamilySaving = {
+      id: `local-${crypto.randomUUID()}`,
+      period_type: periodType,
+      period_start: periodStart,
+      person: form.get("person") as PersonType,
+      source_name: sourceName,
+      amount,
+      note: String(form.get("note") || "")
+    };
+    setSavings((current) => [...current, nextSaving]);
+    event.currentTarget.reset();
+
+    const response = await apiFetch("/api/savings", {
+      method: "POST",
+      accessCode,
+      body: JSON.stringify(nextSaving)
+    });
+    if (response.ok) {
+      const saved = (await response.json()) as FamilySaving;
+      setSavings((current) => current.map((saving) => (saving.id === nextSaving.id ? saved : saving)));
+      setSyncStatus("家庭储蓄来源已保存，图表已更新");
+      void loadLedger();
+    } else {
+      setSyncStatus(`家庭储蓄保存失败（${response.status}），图表已按本地输入更新`);
+    }
+  }
+
+  async function updateSaving(event: FormEvent<HTMLFormElement>, id: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const patch = {
+      source_name: String(form.get("source_name") || "").trim(),
+      amount: Number(form.get("amount")),
+      person: form.get("person") as PersonType,
+      note: String(form.get("note") || "")
+    };
+    if (!patch.source_name || !Number.isFinite(patch.amount) || patch.amount < 0) return;
+    setSavings((current) => current.map((saving) => (saving.id === id ? { ...saving, ...patch } : saving)));
+    if (id.startsWith("local-")) return;
+    const response = await apiFetch(`/api/savings/${id}`, {
+      method: "PATCH",
+      accessCode,
+      body: JSON.stringify(patch)
+    });
+    setSyncStatus(response.ok ? "家庭储蓄修改已保存，图表已更新" : `家庭储蓄修改失败（${response.status}）`);
+    if (response.ok) void loadLedger();
+  }
+
+  async function deleteSaving(id: string) {
+    setSavings((current) => current.filter((saving) => saving.id !== id));
+    if (!id.startsWith("local-")) {
+      const response = await apiFetch(`/api/savings/${id}`, { method: "DELETE", accessCode });
+      setSyncStatus(response.ok ? "家庭储蓄来源已删除，图表已更新" : `家庭储蓄删除失败（${response.status}）`);
     }
   }
 
@@ -212,7 +322,7 @@ export function App() {
     const response = await apiFetch("/api/analyze", {
       method: "POST",
       accessCode,
-      body: JSON.stringify({ question, scope, periodType, periodStart })
+      body: JSON.stringify({ question, scope, person, periodType, periodStart })
     });
 
     if (response.ok) {
@@ -253,6 +363,9 @@ export function App() {
         <div className="switches">
           <Segmented value={periodType} options={[["month", "月度"], ["year", "年度"]]} onChange={setPeriodType} />
           <Segmented value={scope} options={[["personal", "个人"], ["family", "家庭"]]} onChange={setScope} />
+          {scope === "personal" && (
+            <Segmented value={person} options={[["yangbao", "阳宝"], ["yubao", "雨宝"]]} onChange={setPerson} />
+          )}
         </div>
       </header>
 
@@ -286,7 +399,7 @@ export function App() {
         <Kpi tone="yellow" label="收入" value={formatMoney(summary.income)} mark="¥" />
         <Kpi tone="coral" label="成本" value={formatMoney(summary.expense)} mark="□" />
         <Kpi tone="green" label="结余" value={formatMoney(summary.savings)} mark="+" />
-        <Kpi tone="cyan" label="成本率" value={`${Math.round(summary.expenseRatio * 100)}%`} mark="%" />
+        <Kpi tone="purple" label="家庭储蓄金" value={formatMoney(summary.saved)} mark="储" />
       </section>
 
       <section className="workspace">
@@ -318,28 +431,32 @@ export function App() {
 
           <div className="entryTable">
             <div className="entryHead">
-              <span>开项名称</span>
-              <span>资金投入</span>
+              <span>{activeCategory?.flow_type === "income" ? "收入项目" : "开支项目"}</span>
+              <span>{activeCategory?.flow_type === "income" ? "收入金额" : "支出金额"}</span>
               <span>备注</span>
               <span />
             </div>
             {activeEntries.map((entry) => (
-              <div className="entryRow" key={entry.id}>
-                <strong>{entry.item_name}</strong>
-                <span>{formatMoney(entry.amount)}</span>
-                <span>{entry.note || "无"}</span>
+              <form className="entryRow" key={entry.id} onSubmit={(event) => void updateEntry(event, entry.id)}>
+                <input name="item_name" defaultValue={entry.item_name} />
+                <input name="amount" type="number" min="0" defaultValue={entry.amount} />
+                <input name="note" defaultValue={entry.note || ""} />
+                <button type="submit" aria-label="保存修改">
+                  保存
+                </button>
                 <button type="button" onClick={() => void deleteEntry(entry.id)} aria-label="删除">
                   ×
                 </button>
-              </div>
+              </form>
             ))}
             <form className="entryRow newRow" onSubmit={addEntry}>
-              <input name="item_name" placeholder="例如：房租 / 工具订阅" />
+              <input name="item_name" placeholder={activeCategory?.flow_type === "income" ? "例如：工资 / 奖金" : "例如：房租 / 工具订阅"} />
               <input name="amount" placeholder="0" type="number" min="0" />
               <input name="note" placeholder="可选" />
               <button type="submit" aria-label="保存子项">
                 保存
               </button>
+              <span />
             </form>
           </div>
         </section>
@@ -358,6 +475,51 @@ export function App() {
           </button>
           <pre className={analysisSource === "model" ? "modelOutput" : ""}>{analysis}</pre>
         </aside>
+      </section>
+
+      <section className="savingsPanel">
+        <div className="panelHeader">
+          <div>
+            <p>家庭储蓄金</p>
+            <h2>{formatMoney(summary.saved)}</h2>
+          </div>
+          <span>储蓄来源</span>
+        </div>
+        <div className="entryTable savingsTable">
+          <div className="entryHead">
+            <span>来源</span>
+            <span>已储蓄金额</span>
+            <span>归属</span>
+            <span>备注</span>
+            <span />
+          </div>
+          {visibleSavings.map((saving) => (
+            <form className="entryRow savingRow" key={saving.id} onSubmit={(event) => void updateSaving(event, saving.id)}>
+              <input name="source_name" defaultValue={saving.source_name} />
+              <input name="amount" type="number" min="0" defaultValue={saving.amount} />
+              <select name="person" defaultValue={saving.person}>
+                <option value="yangbao">阳宝</option>
+                <option value="yubao">雨宝</option>
+              </select>
+              <input name="note" defaultValue={saving.note || ""} />
+              <button type="submit">保存</button>
+              <button type="button" onClick={() => void deleteSaving(saving.id)} aria-label="删除储蓄来源">
+                ×
+              </button>
+            </form>
+          ))}
+          <form className="entryRow savingRow newRow" onSubmit={addSaving}>
+            <input name="source_name" placeholder="例如：定投 / 年终奖结余" />
+            <input name="amount" type="number" min="0" placeholder="0" />
+            <select name="person" defaultValue="yangbao">
+              <option value="yangbao">阳宝</option>
+              <option value="yubao">雨宝</option>
+            </select>
+            <input name="note" placeholder="可选" />
+            <button type="submit">保存</button>
+            <span />
+          </form>
+        </div>
       </section>
 
       <section className="charts">
@@ -465,11 +627,12 @@ function DonutChart({ rows }: { rows: ReturnType<typeof summarize>["byCategory"]
   );
 }
 
-function summarize(categories: Category[], entries: Entry[]) {
+function summarize(categories: Category[], entries: Entry[], savings: FamilySaving[] = []) {
   const categoryMap = new Map(categories.map((category) => [category.id, category]));
-  const byCategory = new Map<string, { name: string; amount: number; flowType: FlowType }>();
+  const byCategory = new Map<string, { name: string; amount: number; flowType: ChartFlowType }>();
   let income = 0;
   let expense = 0;
+  let saved = 0;
 
   for (const entry of entries) {
     const category = categoryMap.get(entry.category_id);
@@ -482,9 +645,19 @@ function summarize(categories: Category[], entries: Entry[]) {
     byCategory.set(name, row);
   }
 
+  for (const saving of savings) {
+    const amount = Number(saving.amount) || 0;
+    saved += amount;
+    const name = `储蓄：${saving.source_name}`;
+    const row = byCategory.get(name) || { name, amount: 0, flowType: "saving" as ChartFlowType };
+    row.amount += amount;
+    byCategory.set(name, row);
+  }
+
   return {
     income,
     expense,
+    saved,
     savings: income - expense,
     expenseRatio: income > 0 ? expense / income : 0,
     byCategory: Array.from(byCategory.values()).sort((a, b) => b.amount - a.amount)
@@ -493,10 +666,10 @@ function summarize(categories: Category[], entries: Entry[]) {
 
 function describeCharts(summary: ReturnType<typeof summarize>) {
   const top = summary.byCategory.find((row) => row.flowType === "expense");
-  if (!top) return "当前周期还没有成本记录。添加子项后，这里会说明最大成本项、成本率和现金流状态。";
+  if (!top) return `当前周期还没有成本记录。家庭储蓄金为 ${formatMoney(summary.saved)}，新增储蓄来源后会进入图表。`;
   return `当前最大成本项是 ${top.name}，金额 ${formatMoney(top.amount)}。总成本率为 ${Math.round(
     summary.expenseRatio * 100
-  )}%，结余为 ${formatMoney(summary.savings)}。`;
+  )}%，结余为 ${formatMoney(summary.savings)}，家庭储蓄金为 ${formatMoney(summary.saved)}。`;
 }
 
 function makeLocalAnalysis(question: string, summary: ReturnType<typeof summarize>) {
