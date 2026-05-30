@@ -60,7 +60,8 @@ function normalizeEntryBody(body: Record<string, unknown>) {
     period_start: String(body.period_start || ""),
     item_name: String(body.item_name || "").trim(),
     amount: Number(body.amount || 0),
-    note: String(body.note || "")
+    note: String(body.note || ""),
+    is_recurring: body.is_recurring === true
   };
 }
 

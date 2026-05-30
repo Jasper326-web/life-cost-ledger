@@ -29,6 +29,7 @@ npm run dev
 - `scope`：`personal` 表示个人记录，`family` 表示家庭共同记录。
 - `period_type` + `period_start`：决定这条记录属于哪个月或哪一年。
 - `item_name` + `amount`：子项名称和金额。
+- `is_recurring`：是否为长期固定项。勾选后，可在下个周期用“一键迁移上期固定项”复制过来。
 
 `ledger_people` 是人物字典表：
 
@@ -46,6 +47,7 @@ npm run dev
 - 个人模式：只统计 `scope = personal` 且 `person` 等于当前人物的 `ledger_entries`。
 - 家庭模式：统计所有 `ledger_entries`，也就是阳宝、雨宝和家庭共同记录合并。
 - 家庭储蓄金：来自 `family_savings`，单独入表，但会进入 KPI 和图表说明。
+- 迁移逻辑：个人模式迁移当前人物上个周期的长期固定项；家庭模式迁移上个周期所有长期固定项，并按分类、归属、人物、条目名称去重。
 
 环境变量：
 

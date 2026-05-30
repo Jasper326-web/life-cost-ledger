@@ -23,6 +23,7 @@ type Entry = {
   item_name: string;
   amount: number;
   note?: string;
+  is_recurring?: boolean;
 };
 
 type FamilySaving = {
@@ -62,7 +63,8 @@ const demoEntries: Entry[] = [
     period_start: currentPeriod("month"),
     item_name: "主业收入",
     amount: 18000,
-    note: "演示数据"
+    note: "演示数据",
+    is_recurring: true
   },
   {
     id: "demo-2",
@@ -73,7 +75,8 @@ const demoEntries: Entry[] = [
     period_start: currentPeriod("month"),
     item_name: "房租与餐食",
     amount: 8200,
-    note: "可删除后换成真实记录"
+    note: "可删除后换成真实记录",
+    is_recurring: true
   },
   {
     id: "demo-3",
@@ -84,7 +87,8 @@ const demoEntries: Entry[] = [
     period_start: currentPeriod("month"),
     item_name: "工具订阅",
     amount: 1280,
-    note: "副业投入"
+    note: "副业投入",
+    is_recurring: false
   }
 ];
 
@@ -254,7 +258,8 @@ export function App() {
       period_start: periodStart,
       item_name: itemName,
       amount,
-      note: String(form.get("note") || "")
+      note: String(form.get("note") || ""),
+      is_recurring: form.get("is_recurring") === "on"
     };
     setEntries((current) => [...current, nextEntry]);
     event.currentTarget.reset();
@@ -283,7 +288,8 @@ export function App() {
     const patch = {
       item_name: String(form.get("item_name") || "").trim(),
       amount: Number(form.get("amount")),
-      note: String(form.get("note") || "")
+      note: String(form.get("note") || ""),
+      is_recurring: form.get("is_recurring") === "on"
     };
     if (!patch.item_name || !Number.isFinite(patch.amount) || patch.amount < 0) return;
     setEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)));
@@ -305,6 +311,28 @@ export function App() {
     if (!id.startsWith("local-") && !id.startsWith("demo-")) {
       const response = await apiFetch(`/api/entries/${id}`, { method: "DELETE", accessCode });
       setSyncStatus(response.ok ? "记录已从数据库删除，KPI 和图表已更新" : `数据库删除失败（${response.status}）`);
+    }
+  }
+
+  async function migratePreviousPeriod() {
+    if (!accessCode) {
+      setNotice("需要访问码：先输入 APP_ACCESS_CODE，才能迁移上期固定项。");
+      setSyncStatus("未迁移：缺少访问码");
+      return;
+    }
+    const response = await apiFetch("/api/migrate", {
+      method: "POST",
+      accessCode,
+      body: JSON.stringify({ scope, person, periodType, periodStart })
+    });
+    if (response.ok) {
+      const data = (await response.json()) as { inserted?: number; skipped?: number };
+      setSyncStatus(`已迁移 ${data.inserted || 0} 条长期固定项，跳过 ${data.skipped || 0} 条重复项`);
+      void loadLedger();
+    } else {
+      const message = await readApiError(response);
+      setNotice(`迁移失败：${message}`);
+      setSyncStatus(`上期固定项迁移失败（${response.status}）`);
     }
   }
 
@@ -500,7 +528,12 @@ export function App() {
               <p>当前分类</p>
               <h2>{activeCategory?.name}</h2>
             </div>
-            <span>{activeCategory?.flow_type === "income" ? "收入类" : "成本类"}</span>
+            <div className="panelActions">
+              <button type="button" onClick={() => void migratePreviousPeriod()}>
+                迁移上期固定项
+              </button>
+              <span>{activeCategory?.flow_type === "income" ? "收入类" : "成本类"}</span>
+            </div>
           </div>
 
           <div className="entryTable">
@@ -508,6 +541,8 @@ export function App() {
               <span>{activeCategory?.flow_type === "income" ? "收入项目" : "开支项目"}</span>
               <span>{activeCategory?.flow_type === "income" ? "收入金额" : "支出金额"}</span>
               <span>备注</span>
+              <span>长期固定项</span>
+              <span />
               <span />
             </div>
             {activeEntries.map((entry) => (
@@ -515,6 +550,10 @@ export function App() {
                 <input name="item_name" defaultValue={entry.item_name} />
                 <input name="amount" type="number" min="0" defaultValue={entry.amount} />
                 <input name="note" defaultValue={entry.note || ""} />
+                <label className="recurringCell">
+                  <input name="is_recurring" type="checkbox" defaultChecked={Boolean(entry.is_recurring)} />
+                  <span>是</span>
+                </label>
                 <button type="submit" aria-label="保存修改">
                   保存
                 </button>
@@ -527,6 +566,10 @@ export function App() {
               <input name="item_name" placeholder={activeCategory?.flow_type === "income" ? "例如：工资 / 奖金" : "例如：房租 / 工具订阅"} />
               <input name="amount" placeholder="0" type="number" min="0" />
               <input name="note" placeholder="可选" />
+              <label className="recurringCell">
+                <input name="is_recurring" type="checkbox" />
+                <span>是</span>
+              </label>
               <button type="submit" aria-label="保存子项">
                 保存
               </button>

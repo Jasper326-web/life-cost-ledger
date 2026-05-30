@@ -349,6 +349,27 @@ h1 {
   font-weight: 1000;
 }
 
+.panelActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.panelActions button {
+  padding: 8px 12px;
+  background: #ffcf24;
+  box-shadow: 4px 4px 0 #15120d;
+}
+
+.panelActions span {
+  border: 3px solid #15120d;
+  background: #55d17a;
+  padding: 8px 12px;
+  font-weight: 1000;
+}
+
 .entryTable {
   border: 3px solid #15120d;
   background: #15120d;
@@ -357,7 +378,7 @@ h1 {
 .entryHead,
 .entryRow {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(120px, 0.45fr) minmax(120px, 0.8fr) 82px 54px;
+  grid-template-columns: minmax(140px, 1fr) minmax(120px, 0.45fr) minmax(120px, 0.8fr) 112px 82px 54px;
   gap: 3px;
 }
 
@@ -396,6 +417,20 @@ h1 {
   border: 0;
   min-width: 0;
   font-weight: 900;
+}
+
+.recurringCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 1000;
+}
+
+.recurringCell input {
+  width: 18px;
+  height: 18px;
+  accent-color: #55d17a;
 }
 
 .savingRow {
