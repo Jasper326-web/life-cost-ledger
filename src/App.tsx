@@ -143,6 +143,8 @@ export function App() {
 
     if (!response.ok) {
       if (response.status === 401) setNotice("需要访问码：请输入 APP_ACCESS_CODE。");
+      const message = response.status === 401 ? "ACCESS_CODE_REQUIRED" : await readApiError(response);
+      setNotice(response.status === 401 ? "需要访问码：请输入 APP_ACCESS_CODE。" : `数据库读取失败：${message}`);
       setSyncStatus(`数据库读取失败（${response.status}），当前显示本地数据`);
       return;
     }
