@@ -2,8 +2,6 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
-    if (denyWithoutAccessCode(request, response)) return;
-
     if (request.method === "POST") {
       const saving = normalizeSavingBody(request.body);
       const rows = await supabaseRest<unknown[]>("family_savings?select=*", {
@@ -29,14 +27,6 @@ function normalizeSavingBody(body: Record<string, unknown>) {
     amount: Number(body.amount || 0),
     note: String(body.note || "")
   };
-}
-
-function denyWithoutAccessCode(request: VercelRequest, response: VercelResponse) {
-  const expected = process.env.APP_ACCESS_CODE;
-  if (!expected) return false;
-  if (request.headers["x-app-access-code"] === expected) return false;
-  response.status(401).json({ error: "ACCESS_CODE_REQUIRED" });
-  return true;
 }
 
 async function supabaseRest<T>(path: string, init: RequestInit = {}) {

@@ -104,7 +104,6 @@ export function App() {
   const [question, setQuestion] = useState("本期哪些成本需要优先优化？");
   const [analysis, setAnalysis] = useState("连接 Supabase 后，会基于数据库记录回答；本地也会保留演示视图。");
   const [analysisSource, setAnalysisSource] = useState<"idle" | "model" | "fallback" | "error">("idle");
-  const [accessCode, setAccessCode] = useState(() => localStorage.getItem("appAccessCode") || "");
   const [notice, setNotice] = useState("");
   const [syncStatus, setSyncStatus] = useState("本地演示数据");
   const [isLoading, setIsLoading] = useState(false);
@@ -139,12 +138,11 @@ export function App() {
   async function loadLedger() {
     setNotice("");
     const query = new URLSearchParams({ scope, person, periodType, periodStart });
-    const response = await apiFetch(`/api/ledger?${query.toString()}`, { accessCode });
+    const response = await apiFetch(`/api/ledger?${query.toString()}`);
 
     if (!response.ok) {
-      if (response.status === 401) setNotice("需要访问码：请输入 APP_ACCESS_CODE。");
-      const message = response.status === 401 ? "ACCESS_CODE_REQUIRED" : await readApiError(response);
-      setNotice(response.status === 401 ? "需要访问码：请输入 APP_ACCESS_CODE。" : `数据库读取失败：${message}`);
+      const message = await readApiError(response);
+      setNotice(`数据库读取失败：${message}`);
       setSyncStatus(`数据库读取失败（${response.status}），当前显示本地数据`);
       return;
     }
@@ -163,12 +161,6 @@ export function App() {
 
   async function addCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!accessCode) {
-      setNotice("需要访问码：先输入 APP_ACCESS_CODE，才能保存新分类。");
-      setSyncStatus("分类未保存：缺少访问码");
-      return;
-    }
-
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") || "").trim();
     const flowType = form.get("flow_type") === "income" ? "income" : "expense";
@@ -187,7 +179,6 @@ export function App() {
 
     const response = await apiFetch("/api/categories", {
       method: "POST",
-      accessCode,
       body: JSON.stringify({ name, flow_type: flowType })
     });
     if (response.ok) {
@@ -221,8 +212,7 @@ export function App() {
 
     if (category.id.startsWith("local-")) return;
     const response = await apiFetch(`/api/categories?id=${encodeURIComponent(category.id)}`, {
-      method: "DELETE",
-      accessCode
+      method: "DELETE"
     });
     if (response.ok) {
       setSyncStatus("分类已删除，相关明细已同步移除");
@@ -240,12 +230,6 @@ export function App() {
   async function addEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeCategory) return;
-    if (!accessCode) {
-      setNotice("需要访问码：先输入 APP_ACCESS_CODE，才能保存到 Supabase。");
-      setSyncStatus("未保存：缺少访问码");
-      return;
-    }
-
     const form = new FormData(event.currentTarget);
     const amount = Number(form.get("amount"));
     const itemName = String(form.get("item_name") || "").trim();
@@ -268,7 +252,6 @@ export function App() {
 
     const response = await apiFetch("/api/ledger", {
       method: "POST",
-      accessCode,
       body: JSON.stringify(nextEntry)
     });
     if (response.ok) {
@@ -301,7 +284,6 @@ export function App() {
     }
     const response = await apiFetch(`/api/entries/${id}`, {
       method: "PATCH",
-      accessCode,
       body: JSON.stringify(patch)
     });
     setSyncStatus(response.ok ? "记录修改已保存到数据库，KPI 和图表已更新" : `记录修改保存失败（${response.status}）`);
@@ -311,20 +293,14 @@ export function App() {
   async function deleteEntry(id: string) {
     setEntries((current) => current.filter((entry) => entry.id !== id));
     if (!id.startsWith("local-") && !id.startsWith("demo-")) {
-      const response = await apiFetch(`/api/entries/${id}`, { method: "DELETE", accessCode });
+      const response = await apiFetch(`/api/entries/${id}`, { method: "DELETE" });
       setSyncStatus(response.ok ? "记录已从数据库删除，KPI 和图表已更新" : `数据库删除失败（${response.status}）`);
     }
   }
 
   async function migratePreviousPeriod() {
-    if (!accessCode) {
-      setNotice("需要访问码：先输入 APP_ACCESS_CODE，才能迁移上期固定项。");
-      setSyncStatus("未迁移：缺少访问码");
-      return;
-    }
     const response = await apiFetch("/api/migrate", {
       method: "POST",
-      accessCode,
       body: JSON.stringify({ scope, person, periodType, periodStart })
     });
     if (response.ok) {
@@ -340,11 +316,6 @@ export function App() {
 
   async function addSaving(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!accessCode) {
-      setNotice("需要访问码：先输入 APP_ACCESS_CODE，才能保存家庭储蓄金。");
-      setSyncStatus("未保存：缺少访问码");
-      return;
-    }
     const form = new FormData(event.currentTarget);
     const amount = Number(form.get("amount"));
     const sourceName = String(form.get("source_name") || "").trim();
@@ -364,7 +335,6 @@ export function App() {
 
     const response = await apiFetch("/api/savings", {
       method: "POST",
-      accessCode,
       body: JSON.stringify(nextSaving)
     });
     if (response.ok) {
@@ -394,7 +364,6 @@ export function App() {
     if (id.startsWith("local-")) return;
     const response = await apiFetch(`/api/savings/${id}`, {
       method: "PATCH",
-      accessCode,
       body: JSON.stringify(patch)
     });
     setSyncStatus(response.ok ? "家庭储蓄修改已保存，图表已更新" : `家庭储蓄修改失败（${response.status}）`);
@@ -404,7 +373,7 @@ export function App() {
   async function deleteSaving(id: string) {
     setSavings((current) => current.filter((saving) => saving.id !== id));
     if (!id.startsWith("local-")) {
-      const response = await apiFetch(`/api/savings/${id}`, { method: "DELETE", accessCode });
+      const response = await apiFetch(`/api/savings/${id}`, { method: "DELETE" });
       setSyncStatus(response.ok ? "家庭储蓄来源已删除，图表已更新" : `家庭储蓄删除失败（${response.status}）`);
     }
   }
@@ -415,7 +384,6 @@ export function App() {
     setAnalysisSource("idle");
     const response = await apiFetch("/api/analyze", {
       method: "POST",
-      accessCode,
       body: JSON.stringify({ question, scope, person, periodType, periodStart })
     });
 
@@ -437,11 +405,6 @@ export function App() {
       setAnalysisSource("error");
     }
     setIsLoading(false);
-  }
-
-  function saveAccessCode() {
-    localStorage.setItem("appAccessCode", accessCode);
-    void loadLedger();
   }
 
   return (
@@ -477,10 +440,6 @@ export function App() {
       {notice && (
         <section className="accessPanel">
           <strong>{notice}</strong>
-          <input value={accessCode} onChange={(event) => setAccessCode(event.target.value)} placeholder="输入访问码" type="password" />
-          <button type="button" onClick={saveAccessCode}>
-            解锁
-          </button>
         </section>
       )}
 
@@ -801,10 +760,9 @@ function makeLocalAnalysis(question: string, summary: ReturnType<typeof summariz
   )}，结余 ${formatMoney(summary.savings)}。${describeCharts(summary)}`;
 }
 
-async function apiFetch(path: string, init: RequestInit & { accessCode?: string } = {}) {
+async function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
-  if (init.accessCode) headers.set("x-app-access-code", init.accessCode);
   return fetch(path, { ...init, headers });
 }
 

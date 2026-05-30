@@ -17,7 +17,6 @@ type Entry = {
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
-    if (denyWithoutAccessCode(request, response)) return;
     if (request.method !== "POST") return response.status(405).json({ error: "Method not allowed" });
 
     const scope = request.body.scope === "family" ? "family" : "personal";
@@ -97,14 +96,6 @@ function shiftPeriod(periodStart: string, type: PeriodType, direction: number) {
   return type === "year"
     ? `${date.getFullYear()}-01-01`
     : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-function denyWithoutAccessCode(request: VercelRequest, response: VercelResponse) {
-  const expected = process.env.APP_ACCESS_CODE;
-  if (!expected) return false;
-  if (request.headers["x-app-access-code"] === expected) return false;
-  response.status(401).json({ error: "ACCESS_CODE_REQUIRED" });
-  return true;
 }
 
 async function supabaseRest<T>(path: string, init: RequestInit = {}) {

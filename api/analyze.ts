@@ -44,7 +44,6 @@ type AnalysisInput = {
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
-    if (denyWithoutAccessCode(request, response)) return;
     if (request.method !== "POST") return response.status(405).json({ error: "Method not allowed" });
 
     const scope = (request.body.scope || "personal") as ScopeType;
@@ -233,14 +232,6 @@ function fallbackAnalysis(input: AnalysisInput) {
     }`,
     `针对「${input.question || "本期表现如何"}」，钱多多的乖巧建议是：先抓最大的一项，不要同时改太多，下一次复盘会更清楚。`
   ].join("\n\n");
-}
-
-function denyWithoutAccessCode(request: VercelRequest, response: VercelResponse) {
-  const expected = process.env.APP_ACCESS_CODE;
-  if (!expected) return false;
-  if (request.headers["x-app-access-code"] === expected) return false;
-  response.status(401).json({ error: "ACCESS_CODE_REQUIRED" });
-  return true;
 }
 
 async function supabaseRest<T>(path: string, init: RequestInit = {}) {

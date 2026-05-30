@@ -2,7 +2,6 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   try {
-    if (denyWithoutAccessCode(request, response)) return;
     const id = String(request.query.id);
 
     if (request.method === "PATCH") {
@@ -23,14 +22,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
   } catch (error) {
     response.status(500).json({ error: error instanceof Error ? error.message : "Unexpected API error" });
   }
-}
-
-function denyWithoutAccessCode(request: VercelRequest, response: VercelResponse) {
-  const expected = process.env.APP_ACCESS_CODE;
-  if (!expected) return false;
-  if (request.headers["x-app-access-code"] === expected) return false;
-  response.status(401).json({ error: "ACCESS_CODE_REQUIRED" });
-  return true;
 }
 
 async function supabaseRest<T>(path: string, init: RequestInit = {}) {
